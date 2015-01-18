@@ -87,6 +87,25 @@ pid_t Fork(void)
 	return pid;
 }
 
+void *Malloc(size_t size)
+{
+	void *mem;
+
+	mem = malloc(size);
+	if (mem == NULL)
+		err_sys("malloc error");
+	return mem;
+}
+
+Sigfunc *Signal(int signo, Sigfunc *func)
+{
+	Sigfunc *handler;
+
+	if ((handler = signal(signo, func)) == SIG_ERR)
+		err_sys("error signal");
+	return handler;
+}
+
 struct hostent *Gethostbyname(const char *name)
 {
 	struct hostent *host;
@@ -228,6 +247,7 @@ void rio_create(int fd, rio_t *rp)
 	rp->fd = fd;
 	rp->cnt = 0;
 	rp->bufp = rp->buf;
+	bzero(rp->buf, sizeof(rp->buf));
 }
 
 ssize_t rio_read(rio_t *rp, char *buf, size_t bytes)
@@ -249,6 +269,7 @@ ssize_t rio_read(rio_t *rp, char *buf, size_t bytes)
 			break;
 		} else {
 			rp->cnt = readn;
+			rp->bufp = rp->buf;
 		}
 	}
 	maxread = bytes>rp->cnt ? rp->cnt : bytes;

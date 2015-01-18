@@ -17,14 +17,15 @@ int main(void)
 
 	if ((fd = open(file, O_RDWR)) < 0)
 		err_sys("open error");
-	rio_create(fd, &rio);
-	bzero(buf, BUFFER_SIZE);
-	rio_read(&rio, buf, 20);
-	fputs(buf, stdout);
+	rio_create(0, &rio);
+//	bzero(buf, BUFFER_SIZE);
+//	rio_read(&rio, buf, 20);
+//	fputs(buf, stdout);
 
-	bzero(buf, BUFFER_SIZE);
-	rio_readline(&rio, buf, BUFFER_SIZE);
-	fputs(buf, stdout);
+	
+	//bzero(buf, BUFFER_SIZE);
+	while (rio_readline(&rio, buf, BUFFER_SIZE))
+		fputs(buf, stdout);
 
 	close(fd);
 

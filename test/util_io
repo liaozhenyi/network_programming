@@ -12,4 +12,4 @@ test_util_io: $(TEST_OBJ) $(UTIL_OBJ)
 
 .PHONY: clean
 clean:
-	rm -f *.o *.swp *.~ test_util_io
+	rm -f *.o *.swp *.~ util_io

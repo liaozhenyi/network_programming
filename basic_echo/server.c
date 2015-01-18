@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
 
 	Bind(sockfd, (SA *)&servaddr, sizeof(servaddr));
 	Listen(sockfd, BACKLOG);
-	signal(SIGCHLD, sig_chld);
+	Signal(SIGCHLD, sig_chld);
 
 	while (1) {
 		acceptfd = accept(sockfd, (SA *)&cliaddr, &addrlen);

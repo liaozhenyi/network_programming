@@ -44,7 +44,8 @@ ssize_t rio_read(rio_t *rp, char *buf, size_t bytes);
 ssize_t rio_readline(rio_t *rp, char *buf, size_t bytes);
 
 pid_t Fork(void);
-
+void *Malloc(size_t size);
+Sigfunc *Signal(int signo, Sigfunc *func);
 struct hostent *Gethostbyname(const char *name);
 
 /*
@@ -56,7 +57,6 @@ int Bind(int sockfd, const SA *servaddr, socklen_t addrlen);
 int Listen(int sockfd, int backlog);
 int Accept(int sockfd, SA *cliaddr, socklen_t *addrlen);
 
-// TODO: add warpper functions + Signal()
 
 void err_msg(const char *, ...);
 void err_exit(const char *, ...);
