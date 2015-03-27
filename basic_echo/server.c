@@ -52,12 +52,12 @@ int main(int argc, char *argv[])
 void echo_serv(int connfd)
 {
 	ssize_t nread;
-	rio_t rio;
+	buf_fd_t bf;
 	char buf[MAX_LINE];
 
 	bzero(buf, sizeof(buf));
-	rio_create(connfd, &rio);
-	while ((nread = rio_readline(&rio, buf, MAX_LINE))) {
+	buf_init(connfd, &bf);
+	while ((nread = buf_readline(&bf, buf, MAX_LINE))) {
 		if (nread < 0) {
 			err_msg("error read from socket");
 			break;

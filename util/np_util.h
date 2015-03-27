@@ -23,25 +23,29 @@ typedef void Sigfunc(int );
 /*
  * Implementation of wrapper function for socket flow IO 
  * for handling short cut.
- * Without buffer.
  */
 ssize_t readn(int fd, char *buf, size_t bytes);
 ssize_t writen(int fd, char *buf, size_t bytes);
-ssize_t readline(int fd, char *buf, size_t bytes);
 
+/*
+ * Buffer associate with specific file descriptor.
+ * cnt: how many bytes unread in the buffer,
+ * bufp: pointer the next unread position
+ */
 typedef struct {
 	int 	fd;
 	size_t	cnt;
 	char	buf[BUFFER_SIZE];
-	char *	bufp;
-} rio_t;
+	char 	*bufp;
+} buf_fd_t;
 
 /*
- * With buffer.
+ * Socket flow IO with buffer.
  */
-void rio_create(int fd, rio_t *rp);
-ssize_t rio_read(rio_t *rp, char *buf, size_t bytes);
-ssize_t rio_readline(rio_t *rp, char *buf, size_t bytes);
+void buf_init(int fd, buf_fd_t *bp);
+ssize_t buf_read(buf_fd_t *bp, char *buf, size_t bytes);
+ssize_t buf_readline(buf_fd_t *bp, char *buf, size_t bytes);
+ssize_t buf_readn(buf_fd_t *bp, char *buf, size_t bytes);
 
 pid_t Fork(void);
 void *Malloc(size_t size);

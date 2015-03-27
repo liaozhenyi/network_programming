@@ -4,6 +4,9 @@
 
 #include "np_util.h"
 
+/**********************************************************************
+  Error Handling functions.
+**********************************************************************/
 /*
  * Print a message and return to caller.
  * Caller specifies "errnoflag".
@@ -117,6 +120,9 @@ struct hostent *Gethostbyname(const char *name)
 }
 
 
+/**********************************************************************
+  Wrapper functions for socket handling.
+**********************************************************************/
 int Socket(int family, int type, int protocol)
 {
 	int sockfd;
@@ -167,9 +173,12 @@ int Accept(int sockfd, SA *cliaddr, socklen_t *addrlen)
 	return acceptfd;
 }
 
-/*
- * deal with the short cut of read() system call.
- */
+
+/**********************************************************************
+  Wrapper function for socket IO, they mainly offer two functionality:
+   1. handling "short cut" and signal interrupt properly;
+   2. add an application-buffer for efficient socket IO.
+**********************************************************************/
 ssize_t readn(int fd, char *buf, size_t bytes)
 {
 	size_t nleft = bytes;
@@ -183,7 +192,7 @@ ssize_t readn(int fd, char *buf, size_t bytes)
 			if (errno == EINTR) {
 				continue;
 			}
-			return nread;
+			return -1;
 		} else if (nread == 0) {
 			break;
 		}
@@ -216,92 +225,79 @@ ssize_t writen(int fd, char *buf, size_t bytes)
 	return bytes - nleft;
 }
 
-ssize_t readline(int fd, char *buf, size_t bytes)
+void buf_init(int fd, buf_fd_t *bp)
 {
-	int i;
-	ssize_t nread;
-	char c, *bufp = buf;
-
-	for (i = 1; i <= bytes; i++) {
-		// UNP use read() instead of readn(),
-		// With readn() I don't need to check
-		// errno.
-		nread = readn(fd, &c, 1);
-		if (nread < 0) {
-			return nread;	
-		} else if (nread == 0) {
-			*bufp = '\0';
-			return i-1;
-		}
-		*bufp++ = c;
-		if (c == '\n')
-			break;
-	}
-	*bufp = '\0';
-
-	return i;
+	bp->fd = fd;
+	bp->cnt = 0;
+	bp->bufp = bp->buf;
+	bzero(bp->buf, sizeof(bp->buf));
 }
 
-void rio_create(int fd, rio_t *rp)
+ssize_t buf_read(buf_fd_t *bp, char *buf, size_t bytes)
 {
-	rp->fd = fd;
-	rp->cnt = 0;
-	rp->bufp = rp->buf;
-	bzero(rp->buf, sizeof(rp->buf));
-}
-
-ssize_t rio_read(rio_t *rp, char *buf, size_t bytes)
-{
-	size_t maxread;
-	ssize_t readn;
-
-	while (rp->cnt == 0) {
-		// whether to use readn() instead of read()
-		// readn doesn't use buffer, so read is good!
-		readn = read(rp->fd, rp->buf, BUFFER_SIZE);
-		if (readn < 0) {
-			//if (errno == EINTR)
-			//	continue;
-			//else 
-			// the short cut handler should leave to the higher level function.
-			return -1;
-		} else if (readn == 0) {
-			break;
-		} else {
-			rp->cnt = readn;
-			rp->bufp = rp->buf;
-		}
-	}
-	maxread = bytes>rp->cnt ? rp->cnt : bytes;
-	bcopy(rp->bufp, buf, maxread);
-	rp->cnt -= maxread;
-	rp->bufp += maxread;
-
-	return maxread;
-}
-
-ssize_t rio_readline(rio_t * rp, char *buf, size_t bytes)
-{
-	int i;
-	ssize_t nread;
-	char c, *bufp = buf;
-
-	for (i = 1; i <= bytes; i++) {
-		nread = rio_read(rp, &c, 1);
-		if (nread < 0) {
+	while (bp->cnt == 0) {
+		ssize_t cnt = read(bp->fd, bp->buf, BUFFER_SIZE);
+		if (cnt == -1) {
 			if (errno == EINTR)
 				continue;
 			return -1;
-		} else if (nread == 0) {
-			*bufp = '\0';
-			return i-1;
+		} else if (!cnt) {
+			return 0;
+		}
+		bp->cnt = cnt;
+		bp->bufp = bp->buf;
+	}
+
+	size_t readBytes = (bp->cnt > bytes ? bytes : bp->cnt);
+	bcopy(bp->bufp, buf, readBytes);
+	bp->cnt -= readBytes;
+	bp->bufp += readBytes;
+
+	return readBytes;
+}
+
+ssize_t buf_readline(buf_fd_t *bp, char *buf, size_t bytes)
+{
+	char c;
+	char *bufp = buf;
+
+	for (int i = 1; i < bytes; i++) {
+		ssize_t count = buf_read(bp, &c, 1);
+		if (count < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		} else if (!count) {
+			break;
 		}
 		*bufp++ = c;
 		if (c == '\n')
 			break;
 	}
 	*bufp = '\0';
-	return i;
+
+	return bufp-buf;
 }
 
+ssize_t buf_readn(buf_fd_t *bp, char *buf, size_t bytes)
+{
+	char *bufp = buf;
+	ssize_t nread;
+	size_t nleft = bytes;
+	
+	while (nleft) {
+		nread = buf_read(bp, bufp, nleft);
+		if (nread < 0) {
+			if (errno == EINTR)
+				continue;
+			else
+				return -1;
+		} else if (!nread) {
+			break;
+		}
+		bufp += nread;
+		nleft -= nread;
+	}
 
+	return bytes-nleft;
+}
