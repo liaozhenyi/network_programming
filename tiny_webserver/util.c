@@ -5,8 +5,10 @@
 #include <arpa/inet.h>		// inet_addr()
 #include <netdb.h>		// getaddrinfo()
 #include <string.h>
+#include <unistd.h>		// fork(), pipe()
+#include <signal.h>		// sigaction()
 
-#include "socket.h"
+#include "util.h"
 #include "error.h"
 //void err_sys(const char *fmt, ...);
 
@@ -105,4 +107,32 @@ int Getaddrinfo(const char *hostname, const char *service, \
 	if (ret < 0)
 		err_sys("getaddrinfo() error");
 	return ret;
+}
+
+int Pipe(int filedes[2]) {
+	int ret = pipe(filedes);
+
+	if (ret < 0)
+		err_sys("pipe() error!");
+	return ret;
+}
+
+int Fork(void) {
+	int ret = fork();
+
+	if (ret < 0)
+		err_sys("fork() error!");
+	return ret;
+}
+
+handler_t *Signal(int signum, handler_t *handler) {
+	struct sigaction action, old_action;
+
+	action.sa_handler = handler;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = SA_RESTART;
+
+	if (sigaction(signum, &action, &old_action) < 0)
+		err_sys("sigaction() error!");
+	return (old_action.sa_handler);
 }

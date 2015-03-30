@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -g -I.
-SRCS = socket.c error.c socketio.c httpd.c
+SRCS = util.c error.c socketio.c httpd.c
 OBJS = $(SOURCES:.c=.o)
 INCLUDE = error.h
 

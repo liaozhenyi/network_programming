@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "socket.h"
+#include "util.h"
 #include "socketio.h"
 #include "error.h"
 #include "httpd.h"
@@ -24,8 +24,10 @@ int main(int argc, char *argv[]) {
 
 	port = atoi(argv[1]);
 	addrlen = sizeof(clientaddr);
-
 	sockfd = open_listenfd(port);
+
+	Signal(SIGINT, sigint_handler);
+
 	while (1) {
 		pthread_t thread;
 
@@ -36,6 +38,11 @@ int main(int argc, char *argv[]) {
 	close(sockfd);
 
 	return 0;
+}
+
+void sigint_handler(int sig) {
+	printf("Caught SIGINT\n");
+	exit(0);
 }
 
 void *handle_request(void *param) {
@@ -84,7 +91,7 @@ void *handle_request(void *param) {
 					"Tiny couldn't run the CGI program");
 			return NULL;
 		}
-		serve_dynamic(clientfd, filename, cgiargs);
+		serve_dynamic(clientfd, filename, method, cgiargs);
 	}
 		
 	close(clientfd);
@@ -132,14 +139,17 @@ int prase_uri(char *uri, char *filename, char *cgiargs) {
 /*
  * If client request files which locate out of the web root directory,
  * block them.
- * Return 1: filename is safe or 0: unsafe
+ * Return 1: filename is safe    0: unsafe
  */
 int check_filepath(char *filename) {
 	int safe = 0;
-	char *start = filename, *end = NULL;
 
 	if (*filename != '/')
 		return 0;
+
+	char filepath[FILENAME_SIZE];
+	char *start = filepath, *end = NULL;
+	strncpy(filepath, filename, FILENAME_SIZE-1);
 
 	while ((end = strchr(start, '/'))) {
 		if (start != end) {
@@ -153,9 +163,9 @@ int check_filepath(char *filename) {
 		}
 		start = end+1;
 	}
-	++start;
+	++safe;
 	
-	return start > 0;
+	return safe > 0;
 }
 
 void clienterror(int fd, const char *cause, const char *errnum, \
@@ -197,19 +207,113 @@ void serve_static(int fd, const char *filename, int filesize) {
 }
 
 /*
- * Discard requests head
+ * Method == GET.
+ * Discard the request head and the request content.
  */
 void read_requesthdrs(buf_fd_t *bp) {
 	char buf[BUFFER_SIZE];
+	ssize_t nread;
 
-	buf_readline(bp, buf, BUFFER_SIZE);
-	while (strcmp(buf, "\n")) {
-		buf_readline(bp, buf, BUFFER_SIZE);
-		printf("%s", buf);
+	nread = buf_readline(bp, buf, BUFFER_SIZE-1);
+	while (nread > 0 && strcmp(buf, "\r\n")) {
+		nread = buf_readline(bp, buf, BUFFER_SIZE);
 	}
-	return ;
 }
 
-void serve_dynamic(int fd, const char *filename, const char *cgiargs) {
+/*
+ * Method == POST 
+ * We don't care too much about the header except for the content-length.
+ *
+ * Discard requests head until the line contains "content-length",
+ * Return the content-length if it was found, otherwise return -1 
+ * which indicates an error.
+ */
+int read_request_content_length(buf_fd+t *bp) {
+	int nread;
+	char buf[BUFFER_SIZE];
+
+	nread = buf_readline(bp, buf, BUFFER_SIZE-1);
+	while (nread > 0 && 0 != strcmp(buf, "\r\n")) {
+		if (strcasecmp(buf, CONTENT_LENGTH))
+			return atoi(&buf[sizeof(CONTENT_LENGTH)]);
+		nread = buf_readline(bp, buf, BUFFER_SIZE-1);
+	}
+	return -1;
+}
+
+void serve_dynamic(int fd, const char *filename, \
+			const char *method, const char *cgiargs) {
+	char buf[BUFFER_SIZE], body[BODY_SIZE];
+	int pipe_in[2], pipe_out[2];
+	buf_fd_t bf;
+	ssize_t nread;
+	int content_length = 0;
+	int pid, status;
+
+	buf_init(fd, &bf);
+	if (!strcasecmp(method, "GET")) {
+		read_requesthdrs(&bf);
+	} else {
+		content_length = read_request_content_length(&bf);
+	}
+
+	sprintf(body, "HTTP/1.0 200 OK\r\n");
+	sprintf(body, "%sServer: Tiny Web Server\r\n", body);
+	writen(fd, body, strlen(body));
+
+	// pipe_in: child->parent; pipe_out: parent->child
+	Pipe(pipe_in);
+	Pipe(pipe_out);
+
+	if ((pid = Fork())) {
+		close(pipe_in[1]);
+		close(pipe_out[0]);
+		if (0 == strcasecmp("POST", method)) {
+			nread = buf_readline(&bf, buf, BUFFER_SIZE-1);
+			while (nread > 0 && strcmp("\r\n", buf)) {
+				writen(pipe_out[1], buf, nread);
+				nread = buf_readline(&bf, buf, BUFFER_SIZE-1);
+			}
+		}
+
+		buf_fd_t in_bf;
+		buf_init(pipe_in[0], &in_bf);
+		nread = buf_readline(&in_bf, body, BODY_SIZE-1);
+		while (nread > 0 && strcmp("\n", body)) {
+			writen(fd, body, strlen(body));
+			nread = buf_readline(&in_bf, body, BODY_SIZE-1);
+		}
+			
+		close(pipe_in[0]);
+		close(pipe_out[1]);
+		close(fd);
+		waitpid(pid, &status, 0);
+		
+	} else {
+		char meth_env[METHOD_SIZE], cgi_env[CGI_SIZE], length_env[BUFFER_SIZE];
+
+		close(fd);
+		close(pipe_in[0]);
+		close(pipe_out[1]);
+		dup2(pipe_in[1], STDOUT_FILENO);
+		dup2(pipe_out[0], STDIN_FILENO);
+
+		sprintf(meth_env, "REQUEST_METHOD=%s", method);
+		putenv(meth_env);
+		if (0 == strcasecmp(method, "GET")) {
+			sprintf(cgi_env, "QUERY_METHOD=%s", cgiargs);
+			putenv(cgi_env);
+		} else {
+			sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
+			putenv(length_env);
+		}
+		execl(filename, NULL, NULL);
+
+		close(pipe_out[0]);
+		close(pipe_in[1]);
+		exit(0);
+	}
+	
+	exit(0);
 }
 
